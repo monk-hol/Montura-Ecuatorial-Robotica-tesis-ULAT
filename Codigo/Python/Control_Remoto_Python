@@ -1,0 +1,85 @@
+import requests
+import serial
+import time
+
+# Convertir RA en formato horas-minutos-segundos o decimal a grados decimales
+def hms_to_decimal(ra_hms):
+    try:
+        return float(ra_hms)  # Ya está en grados decimales
+    except ValueError:
+        pass
+
+    ra_hms = ra_hms.replace("h", ":").replace("m", ":").replace("s", "")
+    ra_parts = ra_hms.split(':')
+    if len(ra_parts) != 3:
+        raise ValueError(f"Formato de RA inesperado: {ra_hms}")
+    h, m, s = map(float, ra_parts)
+    ra_decimal = (h + m / 60 + s / 3600) * 15  # Convertimos a grados
+    return ra_decimal
+
+# Convertir DEC en formato dms ("-53*10:21") o decimal ("-53.178") a grados decimales
+def dms_to_decimal(dec_dms):
+    try:
+        return float(dec_dms)
+    except ValueError:
+        pass
+
+    sign = -1 if dec_dms.strip()[0] == '-' else 1
+    dec_dms = dec_dms.replace('*', ':').strip("+-")
+    dec_parts = dec_dms.split(':')
+
+    if len(dec_parts) != 3:
+        raise ValueError(f"Formato de DEC inesperado: {dec_dms}")
+
+    degrees, minutes, seconds = map(float, dec_parts)
+    dec_decimal = sign * (degrees + minutes / 60 + seconds / 3600)
+    return dec_decimal
+
+# Configuración de conexión
+stellarium_url = "http://localhost:8090/api/objects/info?format=json"
+serial_port = "COM3" # Cambiar según el puerto de tu Arduino
+baud_rate = 9600
+
+# Conectar al Arduino
+try:
+    ser = serial.Serial(serial_port, baud_rate, timeout=1)
+    time.sleep(2)  # Esperar que Arduino reinicie
+except Exception as e:
+    print("Error abriendo puerto serial:", e)
+    exit()
+
+print("Iniciando seguimiento automático...")
+
+while True:
+    try:
+        response = requests.get(stellarium_url)
+        data = response.json()
+
+        if not data.get("found", False):
+            print("No hay objeto seleccionado.")
+            time.sleep(1)
+            continue
+
+        # Obtener RA y DEC
+        ra_value = str(data["ra"])         # Puede ser decimal o hms
+        dec_value = str(data["dec"])       # Puede ser decimal o dms
+
+        # Convertir a decimal
+        ra_decimal = hms_to_decimal(ra_value)
+        dec_decimal = dms_to_decimal(dec_value)
+
+        # Mostrar
+        print(f"RA en decimal: {ra_decimal:.9f}")
+        print(f"DEC en decimal: {dec_decimal:.9f}")
+
+        # Enviar a Arduino
+        ser.write(f":Sr{ra_decimal:.9f}#".encode())
+        time.sleep(0.1)
+        ser.write(f":Sd{dec_decimal:.9f}#".encode())
+        time.sleep(0.1)
+        ser.write(":MS#".encode())
+        time.sleep(1)
+
+    except Exception as e:
+        print("Error en conexión:", e)
+        time.sleep(2)
