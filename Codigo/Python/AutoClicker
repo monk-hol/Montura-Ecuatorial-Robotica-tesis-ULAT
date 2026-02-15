@@ -1,0 +1,19 @@
+import pyautogui
+import time
+
+# Esperar unos segundos para que el usuario active Stellarium
+time.sleep(5)
+
+# Repetir cada 2 segundos: simular teclas para "objeto actual" y "rotar hacia él"
+while True:
+    # Simular presionar la tecla para "Objeto actual" (barra espaciadora por defecto)
+    pyautogui.press('space')
+
+    # Esperar un poco
+    time.sleep(0.5)
+
+    # Simular presionar la tecla para "rotar el telescopio hacia el objeto"
+    pyautogui.hotkey('ctrl', '1')  # Ctrl+1 es la tecla por defecto
+
+    # Esperar antes de repetir
+    time.sleep(2)
