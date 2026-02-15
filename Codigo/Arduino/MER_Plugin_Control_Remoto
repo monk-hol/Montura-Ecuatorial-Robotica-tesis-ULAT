@@ -1,0 +1,120 @@
+#include <AccelStepper.h>
+#include <LiquidCrystal_I2C.h>
+
+//LCD 
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+//MOTORES
+// 28BYJ-48 + ULN2003 (HALF STEP)
+AccelStepper stepperRA(AccelStepper::HALF4WIRE, 8, 10, 9, 11);
+AccelStepper stepperDEC(AccelStepper::HALF4WIRE, 4, 6, 5, 7);
+
+// MECÁNICA
+const float pasosMotor = 4096.0;     
+
+const float relacionRA  = 69.0 / 16.0;
+const float relacionDEC = 63.0 / 16.0;
+
+const float pasosRevRA  = pasosMotor * relacionRA;
+const float pasosRevDEC = pasosMotor * relacionDEC;
+const float factorRA  = 1.0;   
+const float factorDEC = 0.857142857;
+
+// PI 
+float Kp = 0.060;       
+float Ki = 0.00002;    
+
+float integralRA = 0;
+float integralDEC = 0;
+
+// VARIABLES
+float raDecimal = 0.0;
+float decDecimal = 0.0;
+
+long targetRAsteps  = 0;
+long targetDECsteps = 0;
+
+bool moveCommand = false;
+
+ 
+void setup() {
+  Serial.begin(9600);
+
+  lcd.init();
+  lcd.backlight();
+  lcd.setCursor(0, 0);
+  lcd.print("Esperando RA/DEC");
+
+  stepperRA.setMaxSpeed(900);
+  stepperRA.setAcceleration(900);
+
+  stepperDEC.setMaxSpeed(900);
+  stepperDEC.setAcceleration(900);
+
+}
+
+ 
+void loop() {
+
+  //  RECEPCIÓN SERIAL DE PYTHON
+  if (Serial.available()) {
+    String data = Serial.readStringUntil('#');
+
+    if (data.startsWith(":Sr")) {
+      raDecimal = data.substring(3).toFloat();
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("RA:");
+      lcd.print(raDecimal, 10);
+    }
+
+    if (data.startsWith(":Sd")) {
+      decDecimal = data.substring(3).toFloat();
+      lcd.setCursor(0, 1);
+      lcd.print("DEC:");
+      lcd.print(decDecimal, 10);
+    }
+
+    if (data.startsWith(":MS")) {
+      targetRAsteps  = (raDecimal / 360.0) * pasosRevRA  * factorRA;
+      targetDECsteps = (decDecimal / 360.0) * pasosRevDEC * factorDEC;
+
+      stepperRA.moveTo(targetRAsteps);
+      stepperDEC.moveTo(targetDECsteps);
+
+      moveCommand = true;
+    }
+  }
+
+  // CONTROL PI + ACCELSTEPPER 
+  if (moveCommand) {
+
+    // PI RA    
+    long errorRA = targetRAsteps - stepperRA.currentPosition();
+    integralRA += errorRA;
+    integralRA = constrain(integralRA, -800, 800);
+
+    float speedRA = Kp * abs(errorRA) + Ki * abs(integralRA);
+    speedRA = constrain(speedRA, 900, 900);
+    stepperRA.setMaxSpeed(speedRA);
+
+    // PI DEC 
+    long errorDEC = targetDECsteps - stepperDEC.currentPosition();
+    integralDEC += errorDEC;
+    integralDEC = constrain(integralDEC, -800, 800);
+
+    float speedDEC = Kp * abs(errorDEC) + Ki * abs(integralDEC);
+    speedDEC = constrain(speedDEC, 250, 900);
+    stepperDEC.setMaxSpeed(speedDEC);
+
+    stepperRA.run();
+    stepperDEC.run();
+
+    // FIN DE MOVIMIENTO   
+    if (!stepperRA.isRunning() && !stepperDEC.isRunning()) {
+      moveCommand = false;
+      integralRA = 0;
+      integralDEC = 0;
+    }
+  }
+}
